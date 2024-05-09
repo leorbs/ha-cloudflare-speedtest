@@ -1,0 +1,19 @@
+{
+    "config": {
+      "step": {
+        "user": {
+          "data": {
+            "dl_size": "Download Size"
+          }
+        }
+      },
+      "error": {
+        "wrong_format": "Please input an integer",
+        "unknown": "Unknown error, please check the logs."
+      },
+      "abort": {
+        "single_instance_allowed": "Only a single configuration of this integration is allowed."
+      }
+    }
+}
+  
