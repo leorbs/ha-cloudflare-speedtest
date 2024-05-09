@@ -5,7 +5,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.helpers.entity import Entity
 from datetime import timedelta
 from .const import DOMAIN
-import requests
+import aiohttp
+from random import randint
 
 import time
 
@@ -20,8 +21,9 @@ _LOGGER = logging.getLogger(__name__)
 
 SIZE_25MB = "25000000"
 SIZE_10MB = "10000000"
-URL_DOWN = "https://speed.cloudflare.com/__down&bytes={}"
-URL_META = "http://speed.cloudflare.com/meta"
+SIZE_10MB_int = 10000000
+URL_DOWN = "https://speed.cloudflare.com/__down?bytes={}"
+URL_META = "https://speed.cloudflare.com/meta"
 TIMEOUT = 30
 
 
@@ -39,26 +41,23 @@ async def download(retries=0):
     url = URL_DOWN.format(SIZE_10MB)
 
     _LOGGER.debug(f"Attempt {retries + 1} to download from URL: {url}")
-    async with requests.Session() as session:
+    async with aiohttp.ClientSession() as session:
         try:
             with async_timeout.timeout(TIMEOUT):
                 start = time.time()
                 async with session.get(url) as response:
+                    end = time.time()
                     _LOGGER.debug(f"Response status: {response.status}")
                     if response.status == 200:
-                        end = time.time()
-                        fulltime = end - start
+                        downtime = end - start
                         servertime = float(response.headers['Server-Timing'].split('=')[1]) / 1e3
-                        requesttime = response.elapsed.seconds + response.elapsed.microseconds / 1e6
                         measurement = {}
                         measurement["type"] = "download"
-                        measurement["size"] = SIZE_10MB
-                        measurement["fulltime"] = fulltime
+                        measurement["size"] = SIZE_10MB_int
                         measurement["servertime"] = servertime
-                        measurement["requesttime"] = requesttime
-                        measurement["downtime"] = fulltime - requesttime
+                        measurement["downtime"] = downtime
 
-                        _LOGGER.debug(f"downtime: {fulltime - requesttime}")
+                        _LOGGER.debug(f"downtime: {downtime}")
                         return measurement
                     else:
                         _LOGGER.error(f"Error downloading masurenebt data: {response.status}, {response.reason}")
