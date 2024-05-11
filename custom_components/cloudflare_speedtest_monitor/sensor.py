@@ -1,7 +1,8 @@
 import logging
 import async_timeout
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.core import callback
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed, CoordinatorEntity
 from homeassistant.helpers.entity import Entity
 from datetime import timedelta
 from .const import DOMAIN
@@ -69,54 +70,60 @@ async def download(retries=0):
             raise UpdateFailed("Could not update download data")
 
 
-class CloudflareSpeedtestDeviceEntity(Entity):
-    """Representation of the Cloudflare speedtest device."""
+# class CloudflareSpeedtestDeviceEntity(Entity):
+#     """Representation of the Cloudflare speedtest device."""
+#
+#     def __init__(self, domain):
+#         """Initialize the Cloudflare speedtest device."""
+#         self._domain = domain
+#
+#     @property
+#     def unique_id(self):
+#         """Return a unique ID."""
+#         return f"{self._domain}_cloudflare_speedtest"
+#
+#     @property
+#     def name(self):
+#         """Return the name of the device."""
+#         return "Cloudflare Speedtest"
+#
+#     @property
+#     def device_info(self):
+#         """Return device information."""
+#         return {
+#             "identifiers": {(self._domain, self.unique_id)},
+#             "name": self.name,
+#             "manufacturer": "Cloudflare",
+#         }
 
-    def __init__(self, domain):
-        """Initialize the Cloudflare speedtest device."""
-        self._domain = domain
 
-    @property
-    def unique_id(self):
-        """Return a unique ID."""
-        return f"{self._domain}_cloudflare_speedtest"
-
-    @property
-    def name(self):
-        """Return the name of the device."""
-        return "Cloudflare Speedtest"
-
-    @property
-    def device_info(self):
-        """Return device information."""
-        return {
-            "identifiers": {(self._domain, self.unique_id)},
-            "name": self.name,
-            "manufacturer": "Cloudflare",
-        }
-
-
-class CloudflareSpeedtestDownloadSensor(SensorEntity):
+class CloudflareSpeedtestDownloadSensor(CoordinatorEntity, SensorEntity):
     """Representation of a Cloudflare speedtest sensor."""
 
-    def __init__(self, deviceEntity: CloudflareSpeedtestDeviceEntity, coordinator: DataUpdateCoordinator):
+    def __init__(self, coordinator: DataUpdateCoordinator, config_entry_id: str):
         """Initialize the Cloudflare tunnel sensor."""
+        super().__init__(coordinator)
         self._coordinator = coordinator
-        self._device = deviceEntity
+        # self._device = deviceEntity
+        self._attr_unique_id = f"{config_entry_id}_speedtest_sensor_download"
+        self._attr_name = "Cloudflare Speedtest sensor"
+        self._attr_native_unit_of_measurement = "Mbit/s"
+        self._attr_device_class = SensorDeviceClass.DATA_RATE
 
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return f"Cloudflare Speedtest sensor"
-
-    @property
-    def unique_id(self):
-        """Return a unique ID."""
-        return f"{self._device._domain}_speedtest_sensor_download"
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        _LOGGER.debug("Handle coordinator update")
+        # self._attr_state = self.native_value
+        self.async_write_ha_state()
 
     @property
     def native_value(self):
         """Return the state of the sensor."""
+        if self._coordinator.data is None:
+            _LOGGER.debug(f"No value available. Returning None")
+            return None
+
         downloadMeasurement = self._coordinator.data["measurements"][0]
 
         _LOGGER.debug(f"found download measurement: {downloadMeasurement}")
@@ -126,30 +133,23 @@ class CloudflareSpeedtestDownloadSensor(SensorEntity):
         _LOGGER.debug(f"found speed: {speed}")
         return speed
 
-    @property
-    def native_unit_of_measurement(self):
-        """Return the unit of measurement of the sensor, if any."""
-        return "Mbps"
 
-    @property
-    def device_class(self):
-        """Return the device class of the sensor."""
-        return SensorDeviceClass.DATA_RATE
-
-    @property
-    def device_info(self):
-        """Return device information."""
-        return {
-            "identifiers": {(self._device._domain, self._device.unique_id)},
-            "name": self._device.name,
-            "manufacturer": "Cloudflare",
-        }
+    # @property
+    # def device_info(self):
+    #     """Return device information."""
+    #     return {
+    #         "identifiers": {(self._device._domain, self._device.unique_id)},
+    #         "name": self._device.name,
+    #         "manufacturer": "Cloudflare",
+    #     }
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the Cloudflare Speedtest sensor."""
 
-    device_entity = CloudflareSpeedtestDeviceEntity(DOMAIN)
+    _LOGGER.debug(f"got following config.entry_id in async_setup_entry: {config_entry.entry_id}")
+
+    # device_entity = CloudflareSpeedtestDeviceEntity(DOMAIN)
 
     async def async_update_data():
         """Fetch measurement data"""
@@ -173,14 +173,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         _LOGGER,
         name="cloudflare_speedtest",
         update_method=async_update_data,
-        update_interval=timedelta(minutes=1),
+        update_interval=timedelta(minutes=10),
     )
 
-    await coordinator.async_config_entry_first_refresh()
+    # await coordinator.async_config_entry_first_refresh()
 
-    download_sensor = CloudflareSpeedtestDownloadSensor(device_entity, coordinator)
+    download_sensor = CloudflareSpeedtestDownloadSensor(coordinator, config_entry.entry_id)
 
-    async_add_entities([device_entity], True)
+    # async_add_entities([device_entity], True)
     async_add_entities([download_sensor], True)
 
 
