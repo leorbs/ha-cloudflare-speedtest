@@ -3,7 +3,11 @@
       "step": {
         "user": {
           "data": {
-            "dl_size": "Download Size"
+            "dl_size": "Download Size in MB",
+            "dl_times": "How many times to download per measurement",
+            "ul_size": "Upload Size in MB",
+            "ul_times": "How many times to upload per measurement",
+            "sec_between_measurement": "How long to wait between measurements"
           }
         }
       },

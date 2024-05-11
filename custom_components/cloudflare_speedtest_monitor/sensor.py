@@ -4,6 +4,7 @@ import array
 
 import async_timeout
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed, CoordinatorEntity
 from homeassistant.helpers.entity import Entity
@@ -27,18 +28,16 @@ _LOGGER = logging.getLogger(__name__)
 
 # Constants
 
-SIZE_25MB = "25000000"
-SIZE_10MB = "10000000"
+SIZE_25MB_int = 25000000
 SIZE_10MB_int = 10000000
 URL_DOWN = "https://speed.cloudflare.com/__down?bytes={}"
 URL_META = "https://speed.cloudflare.com/meta"
 TIMEOUT = 30
 
 
-async def download(download_size_in_bytes=SIZE_10MB, amount_measurements=4, timeout=TIMEOUT,
+async def download(int_download_size_in_bytes=SIZE_10MB_int, amount_measurements=4, timeout=TIMEOUT,
                    retries=1):
-    # runs download tests
-    url = URL_DOWN.format(download_size_in_bytes)
+    url = URL_DOWN.format(str(int_download_size_in_bytes))
 
     measurements = []
 
@@ -55,20 +54,20 @@ async def download(download_size_in_bytes=SIZE_10MB, amount_measurements=4, time
                 ttfb = response.elapsed.total_seconds()
 
                 measurement = {"type": "download",
-                               "size": download_size_in_bytes,
+                               "size": int_download_size_in_bytes,
                                "servertime": servertime,
                                "fulltime": fulltime,
                                "ttfb": ttfb}
 
                 _LOGGER.debug(f"start to end request time: {fulltime}, time to first byte: {ttfb}, "
-                              f"time reported by server: {servertime}, bytes requested: {download_size_in_bytes}")
+                              f"time reported by server: {servertime}, bytes requested: {str(int_download_size_in_bytes)}")
                 measurements.append(measurement)
 
         except Exception as err:
             _LOGGER.error(f"Error fetching data: {err}")
             if retries > 0:
                 _LOGGER.error(f"retrying...")
-                return download(download_size_in_bytes, amount_measurements, timeout, retries - 1)
+                return download(int_download_size_in_bytes, amount_measurements, timeout, retries - 1)
 
             raise UpdateFailed("Could not update download data")
 
@@ -194,10 +193,18 @@ class CloudflareSpeedtestLatencySensor(CoordinatorEntity, SensorEntity):
         return latency
 
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
+async def async_setup_entry(hass, config_entry: ConfigEntry, async_add_entities):
     """Set up the Cloudflare Speedtest sensor."""
 
     _LOGGER.debug(f"got following config.entry_id in async_setup_entry: {config_entry.entry_id}")
+    _LOGGER.debug(f"got following config.data in async_setup_entry: {config_entry.data}")
+
+
+    # download size in MB
+    # upload size in MB
+    # how often within one measurement -> default 4
+    # how many seconds between requests
+
 
     # device_entity = CloudflareSpeedtestDeviceEntity(DOMAIN)
 
@@ -209,15 +216,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
         allCloudflareData = {}
 
-        _LOGGER.debug("Taking a speedtest from Cloudflare with ")  # todo
+        _LOGGER.debug("Taking a speedtest from Cloudflare with ")#todo add parameters
         measurements_download = await download()
         _LOGGER.debug(f"Took speedtest with data: {measurements_download}")
         _, _, downspeed = calculate_metrics(measurements_download)
         allCloudflareData["downspeed"] = downspeed
 
-        # todo log
         _LOGGER.debug("Taking a latency test from Cloudflare with ")
-        measurements_download = await download(download_size_in_bytes="1")
+        measurements_download = await download(int_download_size_in_bytes=1)
         _LOGGER.debug(f"Took latency with data: {measurements_download}")
         latency, jitter, _ = calculate_metrics(measurements_download)
         allCloudflareData["latency"] = latency

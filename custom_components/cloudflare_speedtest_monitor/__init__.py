@@ -6,7 +6,6 @@ async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the Cloudflare speedtest component."""
     return True
 
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Cloudflare speedtest from a config entry."""
     hass.data.setdefault(DOMAIN, {})
