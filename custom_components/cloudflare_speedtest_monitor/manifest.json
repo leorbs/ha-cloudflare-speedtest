@@ -7,6 +7,6 @@
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/leorbs/ha-cloudflare-speedtest/issues",
-  "requirements": ["aiohttp", "async_timeout"],
+  "requirements": ["httpx", "async_timeout"],
   "version": "0.0.1"
 }

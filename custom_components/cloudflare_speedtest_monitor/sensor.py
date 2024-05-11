@@ -1,13 +1,18 @@
 import logging
+import statistics
+import array
+
 import async_timeout
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed, CoordinatorEntity
 from homeassistant.helpers.entity import Entity
 from datetime import timedelta
+
+from httpx import AsyncClient
+
 from .const import DOMAIN
-import aiohttp
-from random import randint
+import httpx
 
 import time
 
@@ -28,46 +33,58 @@ URL_META = "https://speed.cloudflare.com/meta"
 TIMEOUT = 30
 
 
-def create_headers(api_key):
-    """Create headers for API requests."""
-    return {
-        'Authorization': f'Bearer {api_key}',
-        'Content-Type': 'application/json',
-    }
-
-
-async def download(retries=0):
+async def download(client: AsyncClient, download_size_in_bytes=SIZE_10MB, amount_measurements=4, timeout=TIMEOUT,
+                   retries=1):
     # runs download tests
+    url = URL_DOWN.format(download_size_in_bytes)
 
-    url = URL_DOWN.format(SIZE_10MB)
+    measurements = []
 
-    _LOGGER.debug(f"Attempt {retries + 1} to download from URL: {url}")
-    async with aiohttp.ClientSession() as session:
+    for i in range(0, amount_measurements):
+        _LOGGER.debug(f"Attempt {i + 1} to download from URL: {url}")
         try:
-            with async_timeout.timeout(TIMEOUT):
+            with async_timeout.timeout(timeout):
                 start = time.time()
-                async with session.get(url) as response:
-                    end = time.time()
-                    _LOGGER.debug(f"Response status: {response.status}")
-                    if response.status == 200:
-                        downtime = end - start
-                        servertime = float(response.headers['Server-Timing'].split('=')[1]) / 1e3
-                        measurement = {}
-                        measurement["type"] = "download"
-                        measurement["size"] = SIZE_10MB_int
-                        measurement["servertime"] = servertime
-                        measurement["downtime"] = downtime
+                response = await client.get(url)
+                end = time.time()
 
-                        _LOGGER.debug(f"downtime: {downtime}")
-                        return measurement
-                    else:
-                        _LOGGER.error(f"Error downloading masurenebt data: {response.status}, {response.reason}")
-                        raise UpdateFailed("Error creating Cloudflare download measurement")
+                fulltime = end - start
+                servertime = float(response.headers['Server-Timing'].split('=')[1]) / 1e3
+                fulltime_httpx = response.elapsed.total_seconds()
 
+                measurement = {"type": "download",
+                               "size": SIZE_10MB_int,
+                               "servertime": servertime,
+                               "fulltime": fulltime,
+                               "fulltime_httpx": fulltime_httpx}
+
+                _LOGGER.debug(f"start to end request time: {fulltime}, fulltime reported by httpx: {fulltime_httpx}, "
+                              f"time reported by server: {servertime}, bytes requested: {download_size_in_bytes}")
+                measurements.append(measurement)
 
         except Exception as err:
             _LOGGER.error(f"Error fetching data: {err}")
+            if retries > 0:
+                _LOGGER.error(f"retrying...")
+                return download(client, download_size_in_bytes, amount_measurements, timeout, retries - 1)
+
             raise UpdateFailed("Could not update download data")
+
+    return measurements
+
+
+def calculate_metrics(measurements):
+    latencies = [(m["fulltime_httpx"]) * 1e3 for m in measurements]
+    if len(latencies) > 1:
+        jitter = statistics.median([abs(latencies[i] - latencies[i - 1]) for i in range(1, len(latencies))])
+    else:
+        jitter = None
+
+    latency = statistics.median(latencies)
+
+    downspeed = statistics.median([(m["size"] * 8 / m["fulltime_httpx"]) / 1e6 for m in measurements])
+
+    return latency, jitter, downspeed
 
 
 # class CloudflareSpeedtestDeviceEntity(Entity):
@@ -106,7 +123,7 @@ class CloudflareSpeedtestDownloadSensor(CoordinatorEntity, SensorEntity):
         self._coordinator = coordinator
         # self._device = deviceEntity
         self._attr_unique_id = f"{config_entry_id}_speedtest_sensor_download"
-        self._attr_name = "Cloudflare Speedtest sensor"
+        self._attr_name = "Cloudflare download speed"
         self._attr_native_unit_of_measurement = "Mbit/s"
         self._attr_device_class = SensorDeviceClass.DATA_RATE
 
@@ -124,15 +141,13 @@ class CloudflareSpeedtestDownloadSensor(CoordinatorEntity, SensorEntity):
             _LOGGER.debug(f"No value available. Returning None")
             return None
 
-        downloadMeasurement = self._coordinator.data["measurements"][0]
+        downspeed = self._coordinator.data["downspeed"]
+        _LOGGER.debug(f"found speed: {downspeed}")
+        return downspeed
 
-        _LOGGER.debug(f"found download measurement: {downloadMeasurement}")
-
-        speed = downloadMeasurement["size"] * 8 / downloadMeasurement["downtime"] / 1e6
-
-        _LOGGER.debug(f"found speed: {speed}")
-        return speed
-
+    @property
+    def suggested_display_precision(self) -> int | None:
+        return 2
 
     # @property
     # def device_info(self):
@@ -142,6 +157,38 @@ class CloudflareSpeedtestDownloadSensor(CoordinatorEntity, SensorEntity):
     #         "name": self._device.name,
     #         "manufacturer": "Cloudflare",
     #     }
+
+
+class CloudflareSpeedtestLatencySensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Cloudflare speedtest sensor."""
+
+    def __init__(self, coordinator: DataUpdateCoordinator, config_entry_id: str):
+        """Initialize the Cloudflare tunnel sensor."""
+        super().__init__(coordinator)
+        self._coordinator = coordinator
+        # self._device = deviceEntity
+        self._attr_unique_id = f"{config_entry_id}_speedtest_sensor_latency"
+        self._attr_name = "Cloudflare latency"
+        self._attr_native_unit_of_measurement = "ms"
+        self._attr_device_class = SensorDeviceClass.DURATION
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        _LOGGER.debug("Handle coordinator update")
+        # self._attr_state = self.native_value
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        if self._coordinator.data is None:
+            _LOGGER.debug(f"No value available. Returning None")
+            return None
+
+        latency = self._coordinator.data["latency"]
+        _LOGGER.debug(f"found latency: {latency}")
+        return latency
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -157,14 +204,24 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         # create all data in here
         # whatever will be returned is stored later in the coordinater.data var
 
-        _LOGGER.debug("Taking a speedtest from Cloudflare")
-        measurement_download = await download()
-        _LOGGER.debug(f"Took speedtest with data: {measurement_download}")
-
         allCloudflareData = {}
-        allCloudflareData["measurements"] = [measurement_download]
+        async with httpx.AsyncClient() as client:
+            _LOGGER.debug("Taking a speedtest from Cloudflare with ")#todo
+            measurements_download = await download(client)
+            _LOGGER.debug(f"Took speedtest with data: {measurements_download}")
+            _, _, downspeed = calculate_metrics(measurements_download)
+            allCloudflareData["downspeed"] = downspeed
 
-        # todo add upload, latency, packetloss, metadata
+            #todo log
+            measurements_download = await download(client, download_size_in_bytes="1")
+            latency, jitter, _ = calculate_metrics(measurements_download)
+            allCloudflareData["latency"] = latency
+            allCloudflareData["jitter"] = jitter
+
+
+
+        # todo add upload, packetloss, metadata
+        # todo remove data in case of error
 
         return allCloudflareData
 
@@ -173,15 +230,16 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         _LOGGER,
         name="cloudflare_speedtest",
         update_method=async_update_data,
-        update_interval=timedelta(minutes=10),
+        update_interval=timedelta(minutes=1),
     )
 
     # await coordinator.async_config_entry_first_refresh()
 
     download_sensor = CloudflareSpeedtestDownloadSensor(coordinator, config_entry.entry_id)
+    latency_sensor = CloudflareSpeedtestLatencySensor(coordinator, config_entry.entry_id)
 
-    # async_add_entities([device_entity], True)
     async_add_entities([download_sensor], True)
+    async_add_entities([latency_sensor], True)
 
 
 async def schedule_integration_reload(hass, entry_id):
