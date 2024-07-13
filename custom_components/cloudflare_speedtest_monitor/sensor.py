@@ -50,7 +50,7 @@ async def download(int_download_size_in_bytes=SIZE_10MB_int, amount_measurements
                 end = time.time()
 
                 fulltime = end - start
-                servertime = float(response.headers['Server-Timing'].split('=')[1]) / 1e3
+                servertime = float(response.headers['Server-Timing'].split(',')[0].split('=')[1]) / 1e3
                 ttfb = response.elapsed.total_seconds()
 
                 measurement = {"type": "download",
@@ -64,15 +64,19 @@ async def download(int_download_size_in_bytes=SIZE_10MB_int, amount_measurements
                 measurements.append(measurement)
 
         except Exception as err:
-            _LOGGER.error(f"Error fetching data: {err}")
             if retries > 0:
-                _LOGGER.error(f"retrying...")
+                _LOGGER.warning(f"Error fetching data: {err}; retrying...")
                 return download(int_download_size_in_bytes, amount_measurements, timeout, retries - 1)
 
-            raise UpdateFailed("Could not update download data")
+            raise UpdateFailed(f"Error fetching data: {err}; Could not update download data")
 
     return measurements
 
+async def process_measurements(measurements):
+    # Await the coroutine to get the actual data
+    measurements_data = await measurements
+    latencies = [(m["ttfb"] - m["servertime"]) * 1e3 for m in measurements_data]
+    return latencies
 
 def calculate_metrics(measurements):
     latencies = [(m["ttfb"] - m["servertime"]) * 1e3 for m in measurements]
