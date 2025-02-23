@@ -30,12 +30,13 @@ _LOGGER = logging.getLogger(__name__)
 
 SIZE_25MB_int = 25000000
 SIZE_10MB_int = 10000000
+SIZE_5MB_int = 5000000
 URL_DOWN = "https://speed.cloudflare.com/__down?bytes={}"
 URL_META = "https://speed.cloudflare.com/meta"
 TIMEOUT = 30
 
 
-async def download(int_download_size_in_bytes=SIZE_10MB_int, amount_measurements=4, timeout=TIMEOUT,
+async def download(int_download_size_in_bytes=SIZE_10MB_int, amount_measurements=1, timeout=TIMEOUT,
                    retries=1):
     url = URL_DOWN.format(str(int_download_size_in_bytes))
 
