@@ -10,9 +10,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.helpers.entity import Entity
 from datetime import timedelta
 
-from requests import Session, Response
+from .const import CONF_SCAN_INTERVAL, CONF_TRAFFIC_LIMIT, CONF_TEST_COUNT
 
-from .const import DOMAIN
+from requests import Response
 
 import asyncio
 import requests
@@ -36,8 +36,7 @@ URL_META = "https://speed.cloudflare.com/meta"
 TIMEOUT = 30
 
 
-async def download(int_download_size_in_bytes=SIZE_10MB_int, amount_measurements=1, timeout=TIMEOUT,
-                   retries=1):
+async def download(int_download_size_in_bytes=SIZE_10MB_int, amount_measurements=1, timeout=TIMEOUT, retries=1):
     url = URL_DOWN.format(str(int_download_size_in_bytes))
 
     measurements = []
@@ -93,33 +92,6 @@ def calculate_metrics(measurements):
     return latency, jitter, downspeed
 
 
-# class CloudflareSpeedtestDeviceEntity(Entity):
-#     """Representation of the Cloudflare speedtest device."""
-#
-#     def __init__(self, domain):
-#         """Initialize the Cloudflare speedtest device."""
-#         self._domain = domain
-#
-#     @property
-#     def unique_id(self):
-#         """Return a unique ID."""
-#         return f"{self._domain}_cloudflare_speedtest"
-#
-#     @property
-#     def name(self):
-#         """Return the name of the device."""
-#         return "Cloudflare Speedtest"
-#
-#     @property
-#     def device_info(self):
-#         """Return device information."""
-#         return {
-#             "identifiers": {(self._domain, self.unique_id)},
-#             "name": self.name,
-#             "manufacturer": "Cloudflare",
-#         }
-
-
 class CloudflareSpeedtestDownloadSensor(CoordinatorEntity, SensorEntity):
     """Representation of a Cloudflare speedtest sensor."""
 
@@ -133,62 +105,44 @@ class CloudflareSpeedtestDownloadSensor(CoordinatorEntity, SensorEntity):
         self._attr_native_unit_of_measurement = "Mbit/s"
         self._attr_device_class = SensorDeviceClass.DATA_RATE
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        _LOGGER.debug("Handle coordinator update")
-        # self._attr_state = self.native_value
-        self.async_write_ha_state()
+
 
     @property
     def native_value(self):
-        """Return the state of the sensor."""
+        """Return the current sensor state."""
         if self._coordinator.data is None:
             _LOGGER.debug(f"No value available. Returning None")
             return None
 
         downspeed = self._coordinator.data["downspeed"]
-        _LOGGER.debug(f"found speed: {downspeed}")
+        _LOGGER.debug(f"found latency: {downspeed}")
         return downspeed
+
+    @property
+    def available(self) -> bool:
+        return self._coordinator.data is not None
 
     @property
     def suggested_display_precision(self) -> int | None:
         return 2
 
-    # @property
-    # def device_info(self):
-    #     """Return device information."""
-    #     return {
-    #         "identifiers": {(self._device._domain, self._device.unique_id)},
-    #         "name": self._device.name,
-    #         "manufacturer": "Cloudflare",
-    #     }
 
 
 class CloudflareSpeedtestLatencySensor(CoordinatorEntity, SensorEntity):
     """Representation of a Cloudflare speedtest sensor."""
 
-    #todo add description that the latency is only for creating get requests. It has nothing to do with the ping latency
     def __init__(self, coordinator: DataUpdateCoordinator, config_entry_id: str):
         """Initialize the Cloudflare tunnel sensor."""
         super().__init__(coordinator)
         self._coordinator = coordinator
-        # self._device = deviceEntity
         self._attr_unique_id = f"{config_entry_id}_speedtest_sensor_latency"
         self._attr_name = "Cloudflare latency"
         self._attr_native_unit_of_measurement = "ms"
         self._attr_device_class = SensorDeviceClass.DURATION
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        _LOGGER.debug("Handle coordinator update")
-        # self._attr_state = self.native_value
-        self.async_write_ha_state()
-
     @property
     def native_value(self):
-        """Return the state of the sensor."""
+        """Return the current sensor state."""
         if self._coordinator.data is None:
             _LOGGER.debug(f"No value available. Returning None")
             return None
@@ -197,54 +151,46 @@ class CloudflareSpeedtestLatencySensor(CoordinatorEntity, SensorEntity):
         _LOGGER.debug(f"found latency: {latency}")
         return latency
 
+    @property
+    def available(self) -> bool:
+        return self._coordinator.data is not None
+
+
 
 async def async_setup_entry(hass, config_entry: ConfigEntry, async_add_entities):
     """Set up the Cloudflare Speedtest sensor."""
+    _LOGGER.debug(f"Got config.entry_id in async_setup_entry: {config_entry.entry_id}")
+    _LOGGER.debug(f"Got config.data in async_setup_entry: {config_entry.data}")
 
-    _LOGGER.debug(f"got following config.entry_id in async_setup_entry: {config_entry.entry_id}")
-    _LOGGER.debug(f"got following config.data in async_setup_entry: {config_entry.data}")
-
-
-    # download size in MB
-    # upload size in MB
-    # how often within one measurement -> default 4
-    # how many seconds between requests
-
-
-    # device_entity = CloudflareSpeedtestDeviceEntity(DOMAIN)
+    scan_interval = config_entry.data.get(CONF_SCAN_INTERVAL)  # Minutes
+    traffic_limit = config_entry.data.get(CONF_TRAFFIC_LIMIT)  # MB
+    test_count = config_entry.data.get(CONF_TEST_COUNT)
 
     async def async_update_data():
         """Fetch measurement data"""
-
-        # create all data in here
-        # whatever will be returned is stored later in the coordinater.data var
-
         allCloudflareData = {}
 
-        _LOGGER.debug("Taking a speedtest from Cloudflare with ")#todo add parameters
-        measurements_download = await download()
-        _LOGGER.debug(f"Took speedtest with data: {measurements_download}")
+        _LOGGER.debug(f"Taking a speed test from Cloudflare with traffic_limit={traffic_limit}MB, test_count={test_count}")
+        measurements_download = await download(int_download_size_in_bytes=traffic_limit * 1024 * 1024, amount_measurements=test_count)
+        _LOGGER.debug(f"Took speed test with data: {measurements_download}")
         _, _, downspeed = calculate_metrics(measurements_download)
         allCloudflareData["downspeed"] = downspeed
 
-        _LOGGER.debug("Taking a latency test from Cloudflare with ")
-        measurements_download = await download(int_download_size_in_bytes=1)
-        _LOGGER.debug(f"Took latency with data: {measurements_download}")
+        _LOGGER.debug("Taking a latency test from Cloudflare")
+        measurements_download = await download(int_download_size_in_bytes=1, amount_measurements=test_count)
+        _LOGGER.debug(f"Took latency test with data: {measurements_download}")
         latency, jitter, _ = calculate_metrics(measurements_download)
         allCloudflareData["latency"] = latency
         allCloudflareData["jitter"] = jitter
 
-        # todo add upload, packetloss, metadata
-        # todo remove data in case of error
-
         return allCloudflareData
 
     coordinator = DataUpdateCoordinator(
-        hass,
-        _LOGGER,
+        hass=hass,
+        logger=_LOGGER,
         name="cloudflare_speedtest",
         update_method=async_update_data,
-        update_interval=timedelta(minutes=1),
+        update_interval=timedelta(minutes=scan_interval),
     )
 
     # await coordinator.async_config_entry_first_refresh()
@@ -252,8 +198,8 @@ async def async_setup_entry(hass, config_entry: ConfigEntry, async_add_entities)
     download_sensor = CloudflareSpeedtestDownloadSensor(coordinator, config_entry.entry_id)
     latency_sensor = CloudflareSpeedtestLatencySensor(coordinator, config_entry.entry_id)
 
-    async_add_entities([download_sensor], True)
-    async_add_entities([latency_sensor], True)
+    async_add_entities([download_sensor, latency_sensor], True)
+
 
 
 async def schedule_integration_reload(hass, entry_id):
