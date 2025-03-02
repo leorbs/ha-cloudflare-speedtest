@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "scan_interval": "Scan Interval (min)",
+          "traffic_limit": "Traffic Limit per Test (MB)",
+          "test_count": "Number of Tests per Scan"
+        },
+        "data_description": {
+          "scan_interval": "How much time between the scans?",
+          "traffic_limit": "How much traffic should be used per test?",
+          "test_count": "How many tests per scan? Multiple tests get averaged"
+        }
+      },
+      "reconfigure": {
+        "data": {
+          "scan_interval": "Scan Interval (min)",
+          "traffic_limit": "Traffic Limit per Test (MB)",
+          "test_count": "Number of Tests per Scan"
+        },
+        "data_description": {
+          "scan_interval": "How much time between the scans?",
+          "traffic_limit": "How much traffic should be used per test?",
+          "test_count": "How many tests per scan? Multiple tests get averaged"
+        }
+      },
+      "showusage": {
+        "description": "Based on your settings, {calculated_result}GB will be used per 30 Days"
+      }
+    },
+    "reconfigure_successful": "Reconfiguration of the Speedtest Monitor successfully",
+    "error": {
+      "wrong_format": "Please input an integer",
+      "unknown": "Unknown error, please check the logs."
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single configuration of this integration is allowed."
+    }
+  }
+}
